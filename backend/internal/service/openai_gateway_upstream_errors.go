@@ -198,6 +198,16 @@ func isOpenAIRequestScopedCapacityShed(upstreamMsg string, upstreamBody []byte) 
 const openAIRequestScopedRetryMaxDelay = 8 * time.Second
 
 func openAIRequestScopedRetryDelay(responseHeaders http.Header, responseBody []byte) time.Duration {
+	delay := OpenAIRequestScopedRetryAfter(responseHeaders, responseBody)
+	if delay > openAIRequestScopedRetryMaxDelay {
+		return openAIRequestScopedRetryMaxDelay
+	}
+	return delay
+}
+
+// OpenAIRequestScopedRetryAfter 返回请求级容量削减时上游给出的 Retry-After 提示（先读 HTTP 头，
+// 再读流内错误事件回显在 error.headers 里的值）。不封顶；0 表示没有可用提示。
+func OpenAIRequestScopedRetryAfter(responseHeaders http.Header, responseBody []byte) time.Duration {
 	type retryAfterValue struct {
 		raw          string
 		milliseconds bool
@@ -223,9 +233,6 @@ func openAIRequestScopedRetryDelay(responseHeaders http.Header, responseBody []b
 		}
 		if !ok || delay <= 0 {
 			continue
-		}
-		if delay > openAIRequestScopedRetryMaxDelay {
-			return openAIRequestScopedRetryMaxDelay
 		}
 		return delay
 	}

@@ -59,6 +59,37 @@ func TestLoadGeminiSameAccountRetries(t *testing.T) {
 	require.Zero(t, cfg.Gateway.MaxSameAccountRetriesGemini)
 }
 
+func TestLoadOpenAIOverloadFailoverDefaults(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 3, cfg.Gateway.OpenAIOverloadSameAccountRetries)
+	require.Equal(t, 8000, cfg.Gateway.OpenAIOverloadRetryMaxDelayMs)
+	require.Zero(t, cfg.Gateway.OpenAIOverloadSwitchAccountRetryAfterSeconds)
+	require.Zero(t, cfg.Gateway.OpenAIOverloadMaxAccountSwitches)
+}
+
+func TestLoadOpenAIOverloadFailoverFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_OPENAI_OVERLOAD_SAME_ACCOUNT_RETRIES", "1")
+	t.Setenv("GATEWAY_OPENAI_OVERLOAD_RETRY_MAX_DELAY_MS", "2000")
+	t.Setenv("GATEWAY_OPENAI_OVERLOAD_SWITCH_ACCOUNT_RETRY_AFTER_SECONDS", "60")
+	t.Setenv("GATEWAY_OPENAI_OVERLOAD_MAX_ACCOUNT_SWITCHES", "2")
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, 1, cfg.Gateway.OpenAIOverloadSameAccountRetries)
+	require.Equal(t, 2000, cfg.Gateway.OpenAIOverloadRetryMaxDelayMs)
+	require.Equal(t, 60, cfg.Gateway.OpenAIOverloadSwitchAccountRetryAfterSeconds)
+	require.Equal(t, 2, cfg.Gateway.OpenAIOverloadMaxAccountSwitches)
+
+	// 显式 0 必须保持 0（直接换号），不能回落到默认 3。
+	resetViperWithJWTSecret(t)
+	t.Setenv("GATEWAY_OPENAI_OVERLOAD_SAME_ACCOUNT_RETRIES", "0")
+	cfg, err = Load()
+	require.NoError(t, err)
+	require.Zero(t, cfg.Gateway.OpenAIOverloadSameAccountRetries)
+}
+
 func TestValidateMinOutputTokensMinimum(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()
@@ -1909,6 +1940,46 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "gateway gemini same account retries too large",
 			mutate:  func(c *Config) { c.Gateway.MaxSameAccountRetriesGemini = 11 },
 			wantErr: "gateway.max_same_account_retries_gemini",
+		},
+		{
+			name:    "gateway openai overload same account retries negative",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadSameAccountRetries = -1 },
+			wantErr: "gateway.openai_overload_same_account_retries",
+		},
+		{
+			name:    "gateway openai overload same account retries too large",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadSameAccountRetries = 11 },
+			wantErr: "gateway.openai_overload_same_account_retries",
+		},
+		{
+			name:    "gateway openai overload retry max delay negative",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadRetryMaxDelayMs = -1 },
+			wantErr: "gateway.openai_overload_retry_max_delay_ms",
+		},
+		{
+			name:    "gateway openai overload retry max delay too large",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadRetryMaxDelayMs = 60001 },
+			wantErr: "gateway.openai_overload_retry_max_delay_ms",
+		},
+		{
+			name:    "gateway openai overload switch retry-after negative",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadSwitchAccountRetryAfterSeconds = -1 },
+			wantErr: "gateway.openai_overload_switch_account_retry_after_seconds",
+		},
+		{
+			name:    "gateway openai overload switch retry-after too large",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadSwitchAccountRetryAfterSeconds = 86401 },
+			wantErr: "gateway.openai_overload_switch_account_retry_after_seconds",
+		},
+		{
+			name:    "gateway openai overload max account switches negative",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadMaxAccountSwitches = -1 },
+			wantErr: "gateway.openai_overload_max_account_switches",
+		},
+		{
+			name:    "gateway openai overload max account switches too large",
+			mutate:  func(c *Config) { c.Gateway.OpenAIOverloadMaxAccountSwitches = 101 },
+			wantErr: "gateway.openai_overload_max_account_switches",
 		},
 		{
 			name:    "gateway openai first output timeout below minimum",

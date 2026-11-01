@@ -583,3 +583,34 @@ func TestCodexOutboundVersionHasSingleSource(t *testing.T) {
 		"codexCLIVersion=%q 不得低于上游最低门槛 %q", codexCLIVersion, codexUpstreamMinVersion,
 	)
 }
+
+func TestOpenAIRequestScopedRetryAfterIsUncapped(t *testing.T) {
+	overloadBody := func(retryAfter, retryAfterMs string) string {
+		return `{"error":{"code":"server_is_overloaded","headers":{"retry-after":"` + retryAfter + `","retry-after-ms":"` + retryAfterMs + `"},"message":"Our servers are currently overloaded. Please try again later.","param":null,"type":"service_unavailable_error"},"sequence_number":3,"type":"error"}`
+	}
+	for _, test := range []struct {
+		name    string
+		headers http.Header
+		body    string
+		want    time.Duration
+	}{
+		{name: "http seconds above cap", headers: http.Header{"Retry-After": []string{"310"}}, want: 310 * time.Second},
+		{name: "stream body above cap", body: overloadBody("330", "330000"), want: 330 * time.Second},
+		{name: "stream body seconds win over milliseconds", body: overloadBody("6", "6000"), want: 6 * time.Second},
+		{name: "header wins over body", headers: http.Header{"Retry-After": []string{"2"}}, body: overloadBody("330", "330000"), want: 2 * time.Second},
+		{name: "invalid header falls through to body", headers: http.Header{"Retry-After": []string{"soon"}}, body: overloadBody("7", "7000"), want: 7 * time.Second},
+		{name: "zero falls through to milliseconds", body: overloadBody("0", "1500"), want: 1500 * time.Millisecond},
+		{name: "no hint", body: `{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded."}}`, want: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			headers := test.headers
+			if headers == nil {
+				headers = http.Header{}
+			}
+			require.Equal(t, test.want, OpenAIRequestScopedRetryAfter(headers, []byte(test.body)))
+		})
+	}
+
+	// 原有的封顶行为保持不变。
+	require.Equal(t, openAIRequestScopedRetryMaxDelay, openAIRequestScopedRetryDelay(http.Header{}, []byte(overloadBody("310", "310000"))))
+}

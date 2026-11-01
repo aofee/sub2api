@@ -1111,6 +1111,14 @@ type GatewayConfig struct {
 	MaxAccountSwitchesGemini int `mapstructure:"max_account_switches_gemini"`
 	// Gemini 同账号重试次数（429/5xx 等可重试错误在换号前对同一账号的重发次数，不含首次请求）
 	MaxSameAccountRetriesGemini int `mapstructure:"max_same_account_retries_gemini"`
+	// OpenAI 上游过载（server_is_overloaded / slow_down）时的同账号重试次数，仅作用于非池模式账号；0 表示直接换号
+	OpenAIOverloadSameAccountRetries int `mapstructure:"openai_overload_same_account_retries"`
+	// OpenAI 上游过载时单次同账号重试的最长等待（毫秒）；0 表示忽略 Retry-After，使用内置 500ms 翻倍退避
+	OpenAIOverloadRetryMaxDelayMs int `mapstructure:"openai_overload_retry_max_delay_ms"`
+	// OpenAI 上游过载给出的 Retry-After 达到该秒数时不再同账号重试、直接换号；0 表示关闭
+	OpenAIOverloadSwitchAccountRetryAfterSeconds int `mapstructure:"openai_overload_switch_account_retry_after_seconds"`
+	// 单个请求内因过载换号的上限：最多 N+1 个不同账号返回过载后直接把过载错误返回客户端；0 表示只受 max_account_switches 限制
+	OpenAIOverloadMaxAccountSwitches int `mapstructure:"openai_overload_max_account_switches"`
 
 	// Antigravity 429 fallback 限流时间（分钟），解析重置时间失败时使用
 	AntigravityFallbackCooldownMinutes int `mapstructure:"antigravity_fallback_cooldown_minutes"`
@@ -2437,6 +2445,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.max_same_account_retries_gemini", 4)
+	viper.SetDefault("gateway.openai_overload_same_account_retries", 3)
+	viper.SetDefault("gateway.openai_overload_retry_max_delay_ms", 8000)
+	viper.SetDefault("gateway.openai_overload_switch_account_retry_after_seconds", 0)
+	viper.SetDefault("gateway.openai_overload_max_account_switches", 0)
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
@@ -3376,6 +3388,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.MaxSameAccountRetriesGemini < 0 || c.Gateway.MaxSameAccountRetriesGemini > 10 {
 		return fmt.Errorf("gateway.max_same_account_retries_gemini must be between 0-10")
+	}
+	if c.Gateway.OpenAIOverloadSameAccountRetries < 0 || c.Gateway.OpenAIOverloadSameAccountRetries > 10 {
+		return fmt.Errorf("gateway.openai_overload_same_account_retries must be between 0-10")
+	}
+	if c.Gateway.OpenAIOverloadRetryMaxDelayMs < 0 || c.Gateway.OpenAIOverloadRetryMaxDelayMs > 60000 {
+		return fmt.Errorf("gateway.openai_overload_retry_max_delay_ms must be between 0-60000")
+	}
+	if c.Gateway.OpenAIOverloadSwitchAccountRetryAfterSeconds < 0 || c.Gateway.OpenAIOverloadSwitchAccountRetryAfterSeconds > 86400 {
+		return fmt.Errorf("gateway.openai_overload_switch_account_retry_after_seconds must be between 0-86400")
+	}
+	if c.Gateway.OpenAIOverloadMaxAccountSwitches < 0 || c.Gateway.OpenAIOverloadMaxAccountSwitches > 100 {
+		return fmt.Errorf("gateway.openai_overload_max_account_switches must be between 0-100")
 	}
 	if c.Gateway.OpenAIFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIFirstOutputTimeoutSeconds > 600 ||
 		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 30) {
