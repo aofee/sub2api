@@ -30,7 +30,8 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	// fork：在线更新/回滚只看本仓库，避免后台一键更新用上游二进制覆盖补丁。
+	githubRepo = "aofee/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"

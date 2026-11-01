@@ -1,9 +1,7 @@
 name: Release
 
+# fork：只允许手动触发；推送标签不自动发布，避免上游标签进入 fork 后发布未打补丁的 :latest。
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -34,6 +32,7 @@ env:
 
 jobs:
   prepare:
+    if: github.repository == 'aofee/sub2api'
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
@@ -377,7 +376,8 @@ jobs:
 
   sync-version-file:
     needs: [prepare, release]
-    if: ${{ needs.release.result == 'success' && needs.prepare.outputs.dry_run != 'true' }}
+    # fork：默认分支只镜像上游，禁止发布流程往默认分支推 VERSION 提交。
+    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
